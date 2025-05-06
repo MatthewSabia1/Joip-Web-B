@@ -1,0 +1,386 @@
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { JoiSession, SharedSession, UserPreferences } from '@/types';
+import { toast } from 'sonner';
+
+export function useJoiSessions() {
+  const { user } = useAuth();
+  const [sessions, setSessions] = useState<JoiSession[]>([]);
+  const [sharedWithMe, setSharedWithMe] = useState<SharedSession[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch user's sessions and sessions shared with them
+  const fetchSessions = useCallback(async () => {
+    if (!user) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Fetch user's own sessions
+      const { data: ownSessions, error: ownError } = await supabase
+        .from('joi_sessions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false });
+
+      if (ownError) throw ownError;
+      
+      // Fetch sessions shared with the user
+      const { data: sharedData, error: sharedError } = await supabase
+        .from('shared_sessions')
+        .select(`
+          id,
+          session_id,
+          owner_id,
+          shared_with_id,
+          created_at,
+          session:joi_sessions(*),
+          owner:profiles(username, avatar_url)
+        `)
+        .eq('shared_with_id', user.id);
+
+      if (sharedError) throw sharedError;
+
+      setSessions(ownSessions || []);
+      setSharedWithMe(sharedData as unknown as SharedSession[] || []);
+    } catch (err) {
+      console.error('Error fetching sessions:', err);
+      setError('Failed to load sessions');
+      toast.error('Failed to load sessions');
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  // Create a new session
+  const createSession = async (sessionData: Partial<JoiSession>): Promise<JoiSession | null> => {
+    if (!user) {
+      toast.error('You must be logged in to create a session');
+      return null;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('joi_sessions')
+        .insert({
+          user_id: user.id,
+          title: sessionData.title || 'Untitled Session',
+          subreddits: sessionData.subreddits || [],
+          system_prompt: sessionData.system_prompt || '',
+          interval: sessionData.interval || 10,
+          transition: sessionData.transition || 'fade',
+          is_favorite: sessionData.is_favorite || false,
+          is_public: sessionData.is_public || false
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      // Update local state
+      setSessions(prevSessions => [data, ...prevSessions]);
+      
+      toast.success('Session created successfully');
+      return data;
+    } catch (err) {
+      console.error('Error creating session:', err);
+      toast.error('Failed to create session');
+      return null;
+    }
+  };
+
+  // Update a session
+  const updateSession = async (id: string, updates: Partial<JoiSession>): Promise<JoiSession | null> => {
+    if (!user) {
+      toast.error('You must be logged in to update a session');
+      return null;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('joi_sessions')
+        .update(updates)
+        .eq('id', id)
+        .eq('user_id', user.id) // Ensure user can only update their own sessions
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      // Update local state
+      setSessions(prevSessions => 
+        prevSessions.map(session => 
+          session.id === id ? data : session
+        )
+      );
+      
+      toast.success('Session updated successfully');
+      return data;
+    } catch (err) {
+      console.error('Error updating session:', err);
+      toast.error('Failed to update session');
+      return null;
+    }
+  };
+
+  // Delete a session
+  const deleteSession = async (id: string): Promise<boolean> => {
+    if (!user) {
+      toast.error('You must be logged in to delete a session');
+      return false;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('joi_sessions')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id); // Ensure user can only delete their own sessions
+
+      if (error) throw error;
+      
+      // Update local state
+      setSessions(prevSessions => 
+        prevSessions.filter(session => session.id !== id)
+      );
+      
+      toast.success('Session deleted successfully');
+      return true;
+    } catch (err) {
+      console.error('Error deleting session:', err);
+      toast.error('Failed to delete session');
+      return false;
+    }
+  };
+
+  // Toggle session favorite status
+  const toggleFavorite = async (id: string): Promise<boolean> => {
+    const session = sessions.find(s => s.id === id);
+    if (!session) return false;
+
+    try {
+      const { error } = await supabase
+        .from('joi_sessions')
+        .update({ is_favorite: !session.is_favorite })
+        .eq('id', id)
+        .eq('user_id', user?.id);
+
+      if (error) throw error;
+      
+      // Update local state
+      setSessions(prevSessions => 
+        prevSessions.map(s => 
+          s.id === id ? { ...s, is_favorite: !s.is_favorite } : s
+        )
+      );
+      
+      return true;
+    } catch (err) {
+      console.error('Error toggling favorite:', err);
+      toast.error('Failed to update favorite status');
+      return false;
+    }
+  };
+
+  // Toggle public sharing status
+  const togglePublic = async (id: string): Promise<boolean> => {
+    const session = sessions.find(s => s.id === id);
+    if (!session) return false;
+
+    try {
+      const { error } = await supabase
+        .from('joi_sessions')
+        .update({ is_public: !session.is_public })
+        .eq('id', id)
+        .eq('user_id', user?.id);
+
+      if (error) throw error;
+      
+      // Refetch to get the updated shared_url_id if needed
+      await fetchSessions();
+      
+      toast.success(session.is_public ? 'Session set to private' : 'Session is now public');
+      return true;
+    } catch (err) {
+      console.error('Error toggling public status:', err);
+      toast.error('Failed to update sharing status');
+      return false;
+    }
+  };
+
+  // Share a session with another user
+  const shareSessionWithUser = async (sessionId: string, username: string): Promise<boolean> => {
+    if (!user) {
+      toast.error('You must be logged in to share a session');
+      return false;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .rpc('share_session', {
+          p_session_id: sessionId,
+          p_username: username
+        });
+
+      if (error) throw error;
+      
+      toast.success(`Session shared with ${username}`);
+      return true;
+    } catch (err) {
+      console.error('Error sharing session:', err);
+      toast.error(`Failed to share session: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      return false;
+    }
+  };
+
+  // Remove a shared session
+  const unshareSession = async (sessionId: string, username: string): Promise<boolean> => {
+    if (!user) {
+      toast.error('You must be logged in to unshare a session');
+      return false;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .rpc('unshare_session', {
+          p_session_id: sessionId,
+          p_username: username
+        });
+
+      if (error) throw error;
+      
+      toast.success(`Sharing with ${username} removed`);
+      return true;
+    } catch (err) {
+      console.error('Error unsharing session:', err);
+      toast.error(`Failed to unshare session: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      return false;
+    }
+  };
+
+  // Remove yourself from a shared session
+  const removeSharedAccess = async (sharedId: string): Promise<boolean> => {
+    if (!user) return false;
+
+    try {
+      const { error } = await supabase
+        .from('shared_sessions')
+        .delete()
+        .eq('id', sharedId)
+        .eq('shared_with_id', user.id);
+
+      if (error) throw error;
+      
+      // Update local state
+      setSharedWithMe(prev => prev.filter(s => s.id !== sharedId));
+      
+      toast.success('Removed from shared session');
+      return true;
+    } catch (err) {
+      console.error('Error removing shared access:', err);
+      toast.error('Failed to remove shared access');
+      return false;
+    }
+  };
+
+  // Load session by shared URL ID
+  const loadSessionByShareId = async (shareId: string): Promise<JoiSession | null> => {
+    try {
+      const { data, error } = await supabase
+        .from('joi_sessions')
+        .select('*')
+        .eq('shared_url_id', shareId)
+        .eq('is_public', true)
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (err) {
+      console.error('Error loading shared session:', err);
+      toast.error('Failed to load shared session');
+      return null;
+    }
+  };
+
+  // Save a shared session as your own (creates a copy)
+  const saveSharedSession = async (session: JoiSession): Promise<JoiSession | null> => {
+    if (!user) {
+      toast.error('You must be logged in to save this session');
+      return null;
+    }
+
+    // Remove fields we don't want to copy
+    const { id, user_id, created_at, updated_at, shared_url_id, is_public, ...sessionData } = session;
+
+    try {
+      const newSession = await createSession({
+        ...sessionData,
+        title: `Copy of ${session.title}`,
+        is_public: false
+      });
+
+      toast.success('Session saved to your library');
+      return newSession;
+    } catch (err) {
+      console.error('Error saving shared session:', err);
+      toast.error('Failed to save session');
+      return null;
+    }
+  };
+
+  // Convert a user preferences object into a session
+  const createSessionFromPreferences = async (preferences: UserPreferences, title: string): Promise<JoiSession | null> => {
+    return await createSession({
+      title,
+      subreddits: preferences.subreddits,
+      system_prompt: preferences.systemPrompt,
+      interval: preferences.interval,
+      transition: preferences.transition,
+      is_favorite: false,
+      is_public: false
+    });
+  };
+
+  // Apply a session to user preferences
+  const applySessionToPreferences = (session: JoiSession): Partial<UserPreferences> => {
+    return {
+      subreddits: session.subreddits,
+      interval: session.interval,
+      transition: session.transition,
+      systemPrompt: session.system_prompt
+    };
+  };
+
+  // Load sessions when the user changes
+  useEffect(() => {
+    if (user) {
+      fetchSessions();
+    } else {
+      setSessions([]);
+      setSharedWithMe([]);
+    }
+  }, [user, fetchSessions]);
+
+  return {
+    sessions,
+    sharedWithMe,
+    loading,
+    error,
+    fetchSessions,
+    createSession,
+    updateSession,
+    deleteSession,
+    toggleFavorite,
+    togglePublic,
+    shareSessionWithUser,
+    unshareSession,
+    removeSharedAccess,
+    loadSessionByShareId,
+    saveSharedSession,
+    createSessionFromPreferences,
+    applySessionToPreferences
+  };
+}

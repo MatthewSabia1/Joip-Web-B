@@ -1,0 +1,94 @@
+/* Hide all video controls */
+video::-webkit-media-controls,
+video::-webkit-media-controls-enclosure,
+video::-webkit-media-controls-panel,
+video::-webkit-media-controls-overlay-play-button,
+video::-webkit-media-controls-play-button,
+video::-webkit-media-controls-timeline,
+video::-webkit-media-controls-current-time-display,
+video::-webkit-media-controls-time-remaining-display,
+video::-webkit-media-controls-time-display,
+video::-webkit-media-controls-mute-button,
+video::-webkit-media-controls-toggle-closed-captions-button,
+video::-webkit-media-controls-volume-slider,
+video::-webkit-media-controls-fullscreen-button {
+  display: none !important;
+}
+
+/* Hide native controls for Firefox */
+video::-moz-media-controls {
+  display: none !important;
+}
+
+/* General override to remove controls */
+video::-internal-media-controls-overlay-cast-button {
+  display: none;
+}
+
+/* Additional hiding for any browser */
+video::-webkit-media-controls-container,
+video::-webkit-media-controls-start-playback-button {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Add these improved animation classes */
+
+/* Improve transform performance with hardware acceleration */
+.will-change-transform {
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.will-change-opacity {
+  will-change: opacity;
+}
+
+/* Animation helpers for flip effect */
+.perspective-1200 {
+  perspective: 1200px;
+}
+
+.backface-visibility-hidden {
+  backface-visibility: hidden;
+}
+
+.transform-gpu {
+  transform: translateZ(0);
+}
+
+/* Add 3D transform rotation helpers */
+.rotate-y-0 {
+  transform: rotateY(0deg);
+}
+
+.rotate-y-90 {
+  transform: rotateY(90deg);
+}
+
+.-rotate-y-90 {
+  transform: rotateY(-90deg);
+}
+
+/* Ensure media objects have smooth transitions */
+img, video {
+  transition-property: opacity, transform;
+  transition-timing-function: ease-in-out;
+}
+
+/* Enhanced animation timing */
+.ease-custom {
+  transition-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1.0);
+}
+
+/* Preload animation */
+@keyframes preload-fade-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.preload-fade-in {
+  animation: preload-fade-in 0.5s ease-in-out forwards;
+}

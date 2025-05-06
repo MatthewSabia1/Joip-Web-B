@@ -1,0 +1,102 @@
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
+
+interface PatreonAuthContextType {
+  isConnecting: boolean;
+  connectPatreon: () => Promise<void>;
+  refreshStatus: () => Promise<void>;
+}
+
+const PatreonAuthContext = createContext<PatreonAuthContextType | undefined>(undefined);
+
+export function PatreonAuthProvider({ children }: { children: ReactNode }) {
+  const { user, refreshProfile } = useAuth();
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  // Check for Patreon success callback in the URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const patreonConnected = params.get('patreonConnected');
+    
+    if (patreonConnected === 'true') {
+      console.log('[PatreonAuth] Detected successful Patreon connection callback');
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+      
+      // Show success toast
+      toast.success('Successfully connected to Patreon');
+      
+      // Refresh profile to get latest Patreon data
+      refreshProfile().catch(err => {
+        console.error('[PatreonAuth] Error refreshing profile after connection:', err);
+      });
+    }
+  }, [refreshProfile]);
+
+  // Function to connect to Patreon
+  const connectPatreon = async () => {
+    if (!user) {
+      toast.error('You must be logged in to connect your Patreon account');
+      return;
+    }
+    
+    setIsConnecting(true);
+    
+    try {
+      console.log('[PatreonAuth] Initiating Patreon connection for user:', user.id);
+      
+      // Call the Supabase Edge Function to get the OAuth URL
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/patreon-auth/connect`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({ userId: user.id })
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[PatreonAuth] Failed to connect:', response.status, errorText);
+        throw new Error(`Failed to initiate Patreon connection: ${response.status} - ${errorText}`);
+      }
+      
+      const { url } = await response.json();
+      console.log('[PatreonAuth] Redirecting to Patreon OAuth URL');
+      
+      // Redirect to Patreon for authorization
+      window.location.href = url;
+      
+    } catch (error) {
+      console.error('[PatreonAuth] Error connecting to Patreon:', error);
+      toast.error(`Error connecting to Patreon: ${error.message}`);
+      setIsConnecting(false);
+    }
+  };
+
+  // Function to refresh Patreon status
+  const refreshStatus = async () => {
+    console.log('[PatreonAuth] Refreshing patron status');
+    await refreshProfile();
+    toast.success('Patron status refreshed');
+  };
+
+  return (
+    <PatreonAuthContext.Provider value={{ 
+      isConnecting, 
+      connectPatreon, 
+      refreshStatus 
+    }}>
+      {children}
+    </PatreonAuthContext.Provider>
+  );
+}
+
+export function usePatreonAuth() {
+  const context = useContext(PatreonAuthContext);
+  if (context === undefined) {
+    throw new Error('usePatreonAuth must be used within a PatreonAuthProvider');
+  }
+  return context;
+}
