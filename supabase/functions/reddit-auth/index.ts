@@ -175,115 +175,6 @@ Deno.serve(async (req) => {
         }
       }
       
-      // Handle POST requests (from our frontend)
-      if (req.method === "POST") {
-        
-        // Note: For security in production you would check authorization, but 
-        // we're removing this for now as it's causing issues with the callback flow
-        /*
-        const authHeader = req.headers.get("Authorization");
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
-          console.error("[RedditAuthFunction] Missing or invalid authorization header");
-          return new Response(
-            JSON.stringify({ 
-              code: 401, 
-              message: "Missing or invalid authorization header",
-              expected: "Bearer <SUPABASE_ANON_KEY>",
-              received: authHeader ? authHeader.substring(0, 10) + "..." : "none",
-            }),
-            {
-              status: 401,
-              headers: {
-                ...corsHeaders,
-                "Content-Type": "application/json",
-              },
-            }
-          );
-        }
-        */
-        
-        const { code } = await req.json();
-        
-        if (!code) {
-          return new Response(
-            JSON.stringify({ error: "No code provided" }),
-            {
-              status: 400,
-              headers: {
-                ...corsHeaders,
-                "Content-Type": "application/json",
-              },
-            }
-          );
-        }
-
-        try {
-          
-          const authHeaderValue = "Basic " + base64.encode(`${REDDIT_CLIENT_ID}:${REDDIT_CLIENT_SECRET}`);
-          
-          const tokenResponse = await fetch("https://www.reddit.com/api/v1/access_token", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-              "Authorization": authHeaderValue,
-              "User-Agent": REDDIT_USER_AGENT
-            },
-            body: queryString.stringify({
-              code,
-              grant_type: "authorization_code",
-              redirect_uri: REDIRECT_URI,
-            }),
-          });
-
-          if (!tokenResponse.ok) {
-            const errorText = await tokenResponse.text();
-            
-            return new Response(
-              JSON.stringify({ 
-                error: "Failed to exchange code for tokens", 
-                details: errorText,
-                status: tokenResponse.status,
-                url: REDIRECT_URI
-              }),
-              {
-                status: 400,
-                headers: {
-                  ...corsHeaders,
-                  "Content-Type": "application/json",
-                },
-              }
-            );
-          }
-
-          const tokens = await tokenResponse.json() as RedditTokenResponse;
-          
-          return new Response(
-            JSON.stringify(tokens),
-            {
-              status: 200,
-              headers: {
-                ...corsHeaders,
-                "Content-Type": "application/json",
-              },
-            }
-          );
-        } catch (exchangeError) {
-          return new Response(
-            JSON.stringify({ 
-              error: "Token exchange error", 
-              message: exchangeError.message,
-            }),
-            {
-              status: 500,
-              headers: {
-                ...corsHeaders,
-                "Content-Type": "application/json",
-              },
-            }
-          );
-        }
-      }
-      
       // If we get here, it's an unsupported method
       return new Response(
         JSON.stringify({ error: "Method not allowed" }),
@@ -312,12 +203,8 @@ Deno.serve(async (req) => {
         );
       }
       
-      // Temporarily disabled authentication check for ease of debugging
-      /*
-      // Verify authorization
+      // Verify authorization - CRITICAL for security
       const authHeader = req.headers.get("Authorization");
-      console.log("[RedditAuthFunction] Refresh - Auth header:", authHeader ? "present" : "missing");
-      
       if (!authHeader || !authHeader.startsWith("Bearer ")) {
         return new Response(
           JSON.stringify({ 
@@ -333,7 +220,6 @@ Deno.serve(async (req) => {
           }
         );
       }
-      */
       
       try {
         const { refreshToken } = await req.json();

@@ -17,7 +17,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { EyeIcon, EyeOffIcon, SaveIcon } from 'lucide-react';
+import { InfoIcon, SaveIcon } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 import { UserPreferences, TransitionEffect } from '@/types';
@@ -42,7 +42,6 @@ export function ConfigPanel({
   const [subredditsInput, setSubredditsInput] = useState(
     preferences.subreddits.join(', ')
   );
-  const [showApiKey, setShowApiKey] = useState(false);
 
   const handleSubredditsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const inputValue = e.target.value;
@@ -74,15 +73,6 @@ export function ConfigPanel({
 
   const handleSystemPromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onUpdatePreferences({ systemPrompt: e.target.value });
-  };
-
-  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newApiKey = e.target.value;
-    if (newApiKey && !/^[a-zA-Z0-9_-]+$/.test(newApiKey)) {
-      toast({ title: 'Warning', description: 'API key should contain only alphanumeric characters, underscores, and hyphens.', variant: 'destructive' });
-    } else {
-      onUpdatePreferences({ apiKeys: { ...preferences.apiKeys, openRouter: newApiKey } });
-    }
   };
 
   return (
@@ -166,44 +156,15 @@ export function ConfigPanel({
                 </p>
               </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="apiKey" className="text-base">OpenRouter API Key</Label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                  >
-                    {showApiKey ? (
-                      <EyeOffIcon className="h-4 w-4 mr-1" />
-                    ) : (
-                      <EyeIcon className="h-4 w-4 mr-1" />
-                    )}
-                    <span className="text-xs">
-                      {showApiKey ? 'Hide' : 'Show'}
-                    </span>
-                  </Button>
+              <div className="bg-muted/40 p-4 rounded-lg flex gap-3 items-start">
+                <InfoIcon className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h4 className="font-medium text-sm">Secure AI Integration</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Our AI captions are powered by OpenRouter, with API keys securely stored on the server. 
+                    For custom API usage, please contact an administrator.
+                  </p>
                 </div>
-                <Input
-                  id="apiKey"
-                  type={showApiKey ? 'text' : 'password'}
-                  placeholder="Enter your OpenRouter API key (optional)..."
-                  value={preferences.apiKeys.openRouter}
-                  onChange={handleApiKeyChange}
-                  className="font-mono text-sm bg-background/50 focus:bg-background transition-colors"
-                />
-                <p className="text-sm text-muted-foreground">
-                  Optional: A default key is provided, but you can get your own from{' '}
-                  <a
-                    href="https://openrouter.ai/keys"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
-                  >
-                    openrouter.ai
-                  </a>
-                </p>
               </div>
             </AccordionContent>
           </AccordionItem>

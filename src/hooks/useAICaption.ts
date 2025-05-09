@@ -1,44 +1,42 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RedditPost, AIResponse } from '@/types';
-import { API_ENDPOINTS, OPENROUTER_MODEL, DEFAULT_OPENROUTER_API_KEY } from '@/lib/constants';
+import { API_ENDPOINTS, OPENROUTER_MODEL } from '@/lib/constants';
+import { supabase } from '@/lib/supabase';
 
 interface UseAICaptionProps {
   post: RedditPost | null;
   systemPrompt: string;
-  apiKey: string;
+  apiKey?: string; // Made optional as we won't need it directly anymore
 }
 
-// Retry fetch with exponential backoff
+// Helper function for fetch with retry logic
 async function fetchWithRetry(
-  url: string, 
-  options: RequestInit, 
-  retries = 3, 
+  url: string,
+  options: RequestInit,
+  retries = 3,
   backoff = 300
 ): Promise<Response> {
   try {
     const response = await fetch(url, options);
-    if (response.ok) return response;
+    if (response.ok || retries <= 1) return response;
     
-    // If we've run out of retries, throw the response
-    if (retries <= 1) throw response;
-    
-    // Wait for backoff duration
+    // Wait for backoff time
     await new Promise(resolve => setTimeout(resolve, backoff));
     
-    // Retry with one fewer retry and exponentially longer backoff
+    // Retry with increased backoff
     return fetchWithRetry(url, options, retries - 1, backoff * 2);
   } catch (error) {
-    if (retries <= 1) throw new Error(error instanceof Error ? error.message : String(error));
+    if (retries <= 1) throw error;
     
-    // Wait for backoff duration
+    // Wait for backoff time
     await new Promise(resolve => setTimeout(resolve, backoff));
     
-    // Retry with one fewer retry and exponentially longer backoff
+    // Retry with increased backoff
     return fetchWithRetry(url, options, retries - 1, backoff * 2);
   }
 }
 
-export function useAICaption({ post, systemPrompt, apiKey }: UseAICaptionProps) {
+export function useAICaption({ post, systemPrompt }: UseAICaptionProps) {
   const [response, setResponse] = useState<AIResponse>({
     caption: '',
     loading: false
@@ -53,11 +51,8 @@ export function useAICaption({ post, systemPrompt, apiKey }: UseAICaptionProps) 
       return;
     }
     
-    // Use default API key if none is provided
-    const effectiveApiKey = apiKey.trim() || DEFAULT_OPENROUTER_API_KEY;
-
     setResponse(prev => ({ ...prev, loading: true, error: undefined }));
-
+    
     try {
       // Prepare content for AI prompt
       const postContent = `
@@ -68,19 +63,25 @@ export function useAICaption({ post, systemPrompt, apiKey }: UseAICaptionProps) 
         Media Type: ${post.isImage ? 'Image' : post.isVideo ? 'Video' : 'Other'}
       `;
 
-      // Call OpenRouter API with retry logic and proper error handling
+      // Get the Supabase URL and anon key for auth
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      
+      if (!supabaseUrl || !supabaseAnonKey) {
+        throw new Error('Missing Supabase configuration');
+      }
+      
+      // Call our proxy Edge Function instead of OpenRouter directly
       const response = await fetchWithRetry(
-        API_ENDPOINTS.OPENROUTER,
+        `${supabaseUrl}/functions/v1/openrouter-proxy`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${effectiveApiKey}`,
-            'HTTP-Referer': window.location.origin,
-            'X-Title': 'Reddit Slideshow App'
+            'Authorization': `Bearer ${supabaseAnonKey}`,
           },
           body: JSON.stringify({
-            model: OPENROUTER_MODEL,
+            model: OPENROUTER_MODEL, // Send model, but proxy will use default if not available
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: `Generate a caption for this Reddit post: ${postContent}` }
@@ -99,38 +100,20 @@ export function useAICaption({ post, systemPrompt, apiKey }: UseAICaptionProps) 
 
       const data = await response.json();
       const caption = data.choices[0]?.message?.content || 'No caption generated.';
-
+      
       setResponse({
         caption,
         loading: false
       });
     } catch (error) {
       console.error('Error generating caption:', error);
-      
-      // Prepare user-friendly error message based on error type
-      let errorMessage = 'Failed to generate caption';
-      
-      if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        errorMessage = 'Network error: Please check your internet connection and try again.';
-      } else if (error instanceof Response) {
-        if (error.status === 401) {
-          errorMessage = apiKey.trim() ? 'Invalid API key. Please check your OpenRouter API key and try again.' : 'The default API key is not working. Please try using your own API key.';
-        } else if (error.status === 403) {
-          errorMessage = 'Access denied. The API key may have insufficient permissions.';
-        } else if (error.status >= 500) {
-          errorMessage = 'OpenRouter API is currently unavailable. Please try again later.';
-        }
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-      
       setResponse({
         caption: '',
         loading: false,
-        error: errorMessage
+        error: error instanceof Error ? error.message : 'Unknown error generating caption'
       });
     }
-  }, [post, systemPrompt, apiKey]);
+  }, [post, systemPrompt]);
 
   // Generate caption whenever post changes
   useEffect(() => {
@@ -146,6 +129,6 @@ export function useAICaption({ post, systemPrompt, apiKey }: UseAICaptionProps) 
 
   return {
     ...response,
-    regenerate: generateCaption
+    generateCaption
   };
 }
